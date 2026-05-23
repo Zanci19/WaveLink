@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory, useLocation, useParams } from 'react-router-dom';
 import {
+  IonBackButton,
   IonBadge,
   IonButton,
+  IonButtons,
   IonContent,
+  IonHeader,
   IonIcon,
   IonItem,
   IonLabel,
   IonNote,
   IonPage,
   IonText,
+  IonTitle,
   IonToggle,
+  IonToolbar,
 } from '@ionic/react';
 import {
   checkmarkCircleOutline,
   closeCircleOutline,
+  copyOutline,
   exitOutline,
   peopleOutline,
   refreshOutline,
@@ -27,6 +33,7 @@ import { JoinRequest, JoinRequestStatus, RoomSnapshot } from '../services/fireba
 import { normalizeDisplayName } from '../services/firebase/roomSignalingHelpers';
 import { backgroundService } from '../services/backgroundService';
 import { hardwareButtonService } from '../services/hardwareButtonService';
+import { voiceLifecycleService } from '../services/voiceLifecycleService';
 import { openAppSettings } from '../services/permissionsService';
 import { preferencesService } from '../services/preferences/preferencesService';
 import { RoomEntryStatus, RoomService, RoomServiceError } from '../services/roomService';
@@ -56,17 +63,42 @@ const statusColors: Record<ConnectionStatus, string> = {
 const RemoteAudio: React.FC<{ stream: MediaStream }> = ({ stream }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (!audioRef.current) {
+  const playStream = useCallback(async () => {
+    const audioElement = audioRef.current;
+    if (!audioElement) {
       return;
     }
-    audioRef.current.srcObject = stream;
-    audioRef.current.play().catch(() => {
-      // Autoplay can be blocked on web until user gesture.
-    });
+    audioElement.srcObject = stream;
+    audioElement.muted = false;
+    try {
+      await audioElement.play();
+    } catch {
+      // Autoplay can be blocked until a user gesture; lifecycle hooks will retry.
+    }
   }, [stream]);
 
-  return <audio ref={audioRef} className="remote-audio" autoPlay playsInline />;
+  useEffect(() => {
+    void playStream();
+    const keepAlive = window.setInterval(() => {
+      const audioElement = audioRef.current;
+      if (audioElement?.paused && audioElement.srcObject) {
+        void audioElement.play().catch(() => undefined);
+      }
+    }, 1500);
+    return () => window.clearInterval(keepAlive);
+  }, [playStream]);
+
+  return (
+    <audio
+      ref={audioRef}
+      className="remote-audio"
+      autoPlay
+      playsInline
+      onPause={() => {
+        void playStream();
+      }}
+    />
+  );
 };
 
 const Room: React.FC = () => {
@@ -90,6 +122,7 @@ const Room: React.FC = () => {
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [error, setError] = useState<RoomServiceError | null>(null);
   const [isStarting, setIsStarting] = useState(true);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const localMember = roomSnapshot?.members.find((member) => member.userId === localUserId) ?? null;
   const currentTalkerName =
@@ -126,10 +159,7 @@ const Room: React.FC = () => {
       return;
     }
 
-    let service: RoomService;
-    const isCurrentService = () =>
-      startSessionIdRef.current === startSessionId && roomServiceRef.current === service;
-    service = new RoomService({
+    const service = new RoomService({
       onConnectionStatusChange: (status) => {
         if (isCurrentService()) {
           setConnectionStatus(status);
@@ -182,6 +212,8 @@ const Room: React.FC = () => {
         setError(serviceError);
       },
     });
+    const isCurrentService = () =>
+      startSessionIdRef.current === startSessionId && roomServiceRef.current === service;
     roomServiceRef.current = service;
 
     try {
@@ -196,13 +228,6 @@ const Room: React.FC = () => {
       setLocalUserId(result.userId);
       setEntryStatus(result.status);
       await preferencesService.setLastRoomCode(roomCode);
-      if (result.status === 'joined') {
-        try {
-          await backgroundService.startRoomForegroundMode(roomCode);
-        } catch (e) {
-          console.warn('Foreground service start failed:', e);
-        }
-      }
     } catch (roomError) {
       if (!isCurrentService()) {
         return;
@@ -261,6 +286,46 @@ const Room: React.FC = () => {
     };
   }, [handlePressEnd, handlePressStart]);
 
+  useEffect(() => {
+    if (entryStatus !== 'joined' || isWaitingForApproval) {
+      voiceLifecycleService.stop();
+      return;
+    }
+
+    const resumeVoice = () => roomServiceRef.current?.resumeVoiceSession();
+    voiceLifecycleService.setHandlers({ onResume: resumeVoice });
+    void voiceLifecycleService.start();
+    void backgroundService.startRoomForegroundMode(roomCode).catch((e) => {
+      console.warn('Foreground service start failed:', e);
+    });
+
+    return () => {
+      voiceLifecycleService.stop();
+    };
+  }, [entryStatus, isWaitingForApproval, roomCode]);
+
+  const handleCopyRoomCode = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(roomCode);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = roomCode;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopyFeedback('Copied');
+      window.setTimeout(() => setCopyFeedback(null), 1800);
+    } catch {
+      setCopyFeedback('Copy failed');
+      window.setTimeout(() => setCopyFeedback(null), 1800);
+    }
+  };
+
   const handleLeave = async () => {
     await roomServiceRef.current?.leaveRoom();
     await backgroundService.stopRoomForegroundMode();
@@ -284,12 +349,32 @@ const Room: React.FC = () => {
 
   return (
     <IonPage>
-      <IonContent className="page-content">
+      <IonHeader className="room-toolbar-header">
+        <IonToolbar>
+          <IonButtons slot="start">
+            <IonBackButton defaultHref="/home" text="Back" />
+          </IonButtons>
+          <IonTitle>Room</IonTitle>
+        </IonToolbar>
+      </IonHeader>
+      <IonContent className="room-page-content">
         <div className="room-container">
           <div className="room-header">
             <IonText>
               <h2>Room Code</h2>
-              <p className="room-code">{roomCode}</p>
+              <div className="room-code-row">
+                <p className="room-code">{roomCode}</p>
+                <IonButton
+                  fill="clear"
+                  size="small"
+                  className="copy-code-button"
+                  aria-label="Copy room code"
+                  onClick={handleCopyRoomCode}
+                >
+                  <IonIcon slot="icon-only" icon={copyOutline} />
+                </IonButton>
+              </div>
+              {copyFeedback && <IonNote className="copy-feedback">{copyFeedback}</IonNote>}
             </IonText>
             <IonBadge color={isWaitingForApproval ? 'warning' : statusColors[connectionStatus]}>
               {connectionLabel}

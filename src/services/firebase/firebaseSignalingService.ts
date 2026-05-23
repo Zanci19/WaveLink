@@ -13,7 +13,6 @@ import {
 } from 'firebase/firestore';
 import { getFirestoreDb } from './firebase';
 import {
-  MAX_ROOM_MEMBERS,
   MIN_ROOM_MEMBERS,
   chooseHostUserId,
   clampMaxUsers,

@@ -4,10 +4,10 @@ import {
   FirebaseSignalingService,
   JoinRequest,
   JoinRequestStatus,
-  RemoteAudioStream,
   RoomMember,
   RoomSnapshot,
 } from './firebase/firebaseSignalingService';
+import { RemoteAudioStream } from './webrtc/webrtcVoiceService';
 import { isPeerOfferer } from './firebase/roomSignalingHelpers';
 import { PushToTalkController } from './ptt/pushToTalkController';
 import { WebRtcVoiceService } from './webrtc/webrtcVoiceService';
@@ -103,6 +103,13 @@ export class RoomService {
       });
       return false;
     }
+  }
+
+  async resumeVoiceSession() {
+    if (this.isClosed) {
+      return;
+    }
+    await this.webrtc.resumeAudioContext();
   }
 
   async stopPushToTalk() {

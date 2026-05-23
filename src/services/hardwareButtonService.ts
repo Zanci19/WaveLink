@@ -1,4 +1,6 @@
+import { Capacitor } from '@capacitor/core';
 import { HardwareKey, preferencesService } from './preferences/preferencesService';
+import { HardwareKeyPlugin, NativeHardwareKeyEvent } from './hardwareKeyPlugin';
 
 type PushToTalkHandlers = {
   onStart?: () => void;
@@ -13,6 +15,7 @@ class HardwareButtonService {
   private detectedKey: HardwareKey | null = null;
   private pressedKeys = new Set<string>();
   private handlers: PushToTalkHandlers = {};
+  private nativeListenerRemove: (() => void) | null = null;
 
   async initialize() {
     if (this.initialized) {
@@ -22,6 +25,13 @@ class HardwareButtonService {
     await this.refreshPreferences();
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
+
+    if (Capacitor.isNativePlatform()) {
+      const listener = await HardwareKeyPlugin.addListener('hardwareKey', (event) => {
+        this.handleNativeKey(event);
+      });
+      this.nativeListenerRemove = () => listener.remove();
+    }
   }
 
   async refreshPreferences() {
@@ -49,6 +59,43 @@ class HardwareButtonService {
     });
   }
 
+  private handleNativeKey(event: NativeHardwareKeyEvent) {
+    if (this.detecting) {
+      const detected: HardwareKey = { code: event.code, key: event.key };
+      this.finishDetection(detected);
+      return;
+    }
+
+    if (!this.enabled || !this.detectedKey || event.code !== this.detectedKey.code) {
+      return;
+    }
+
+    if (event.action === 'down') {
+      if (this.pressedKeys.has(event.code)) {
+        return;
+      }
+      this.pressedKeys.add(event.code);
+      this.handlers.onStart?.();
+      return;
+    }
+
+    if (!this.pressedKeys.has(event.code)) {
+      return;
+    }
+    this.pressedKeys.delete(event.code);
+    this.handlers.onStop?.();
+  }
+
+  private finishDetection(detected: HardwareKey) {
+    this.detecting = false;
+    this.detectedKey = detected;
+    void preferencesService.setHardwareKey(detected);
+    if (this.detectResolver) {
+      this.detectResolver(detected);
+      this.detectResolver = null;
+    }
+  }
+
   private handleKeyDown = async (event: KeyboardEvent) => {
     const code = event.code || event.key;
     if (!code) {
@@ -56,14 +103,7 @@ class HardwareButtonService {
     }
 
     if (this.detecting) {
-      const detected: HardwareKey = { code, key: event.key };
-      this.detecting = false;
-      this.detectedKey = detected;
-      await preferencesService.setHardwareKey(detected);
-      if (this.detectResolver) {
-        this.detectResolver(detected);
-        this.detectResolver = null;
-      }
+      this.finishDetection({ code, key: event.key });
       return;
     }
 

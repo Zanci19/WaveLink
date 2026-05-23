@@ -50,7 +50,12 @@ export class WebRtcVoiceService {
       },
     });
 
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('AUDIO_CONTEXT_NOT_SUPPORTED');
+    }
     const context = new AudioContextClass();
     const source = context.createMediaStreamSource(sourceStream);
     const inputGain = context.createGain();
@@ -227,7 +232,12 @@ export class WebRtcVoiceService {
   }
 
   private async playToneSequence(tones: Array<{ frequency: number; duration: number }>) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('AUDIO_CONTEXT_NOT_SUPPORTED');
+    }
     const context = this.audioGraph?.context ?? new AudioContextClass();
     if (context.state === 'suspended') {
       await context.resume();

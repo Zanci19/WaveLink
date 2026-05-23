@@ -46,6 +46,10 @@ export class PushToTalkController {
 
   async forceStop() {
     this.webrtc.setLocalAudioEnabled(false);
-    this.onStateChange?.(false);
+    try {
+      await this.signaling.clearCurrentlyTalkingIfOwner(this.roomCode, this.userId);
+    } finally {
+      this.onStateChange?.(false);
+    }
   }
 }
