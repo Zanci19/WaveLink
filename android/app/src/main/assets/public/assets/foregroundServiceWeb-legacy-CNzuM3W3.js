@@ -1,0 +1,1 @@
+System.register([],function(e,t){return{setters:[],execute:function(){e("ForegroundServiceWeb",class{async start(){}async stop(){}})}}});

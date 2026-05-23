@@ -1,0 +1,7 @@
+{
+  "name": "WaveLink",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react-vite"
+}

@@ -1,0 +1,1 @@
+var e=class{async start(){}async stop(){}};export{e as ForegroundServiceWeb};
