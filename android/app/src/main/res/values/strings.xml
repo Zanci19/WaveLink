@@ -4,4 +4,6 @@
     <string name="title_activity_main">WaveLink</string>
     <string name="package_name">com.zanci19.wavelink</string>
     <string name="custom_url_scheme">com.zanci19.wavelink</string>
+    <string name="hardware_ptt_accessibility_label">WaveLink Hardware PTT</string>
+    <string name="hardware_ptt_accessibility_description">Lets WaveLink hear a mapped hardware push-to-talk button while the app is in the background or the screen is locked.</string>
 </resources>

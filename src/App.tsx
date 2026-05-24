@@ -5,6 +5,7 @@ import { IonReactRouter } from '@ionic/react-router';
 import Home from './pages/Home';
 import Room from './pages/Room';
 import Settings from './pages/Settings';
+import { edgeToEdgeService } from './services/edgeToEdgeService';
 import { hardwareButtonService } from './services/hardwareButtonService';
 
 /* Core CSS required for Ionic components to work properly */
@@ -41,6 +42,7 @@ setupIonicReact();
 
 const App: React.FC = () => {
   useEffect(() => {
+    edgeToEdgeService.initialize();
     hardwareButtonService.initialize();
   }, []);
 
@@ -48,15 +50,9 @@ const App: React.FC = () => {
     <IonApp>
       <IonReactRouter>
         <IonRouterOutlet>
-          <Route exact path="/home">
-            <Home />
-          </Route>
-          <Route exact path="/room/:code">
-            <Room />
-          </Route>
-          <Route exact path="/settings">
-            <Settings />
-          </Route>
+          <Route exact path="/home" component={Home} />
+          <Route exact path="/room/:code" component={Room} />
+          <Route exact path="/settings" component={Settings} />
           <Route exact path="/">
             <Redirect to="/home" />
           </Route>

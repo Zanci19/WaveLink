@@ -20,10 +20,15 @@ import { preferencesService } from '../services/preferences/preferencesService';
 import { generateRoomCode } from '../services/roomCodeService';
 import './Home.css';
 
+type HomeMode = 'create' | 'join';
+
+const joinErrorCodes = new Set(['room-not-found', 'room-full', 'join-denied']);
+
 const Home: React.FC = () => {
   const history = useHistory();
   const location = useLocation();
   const isOnline = useNetworkStatus();
+  const [homeMode, setHomeMode] = useState<HomeMode>('create');
   const [roomCode, setRoomCode] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
@@ -59,6 +64,7 @@ const Home: React.FC = () => {
       'display-name': 'Enter a display name before joining a room.',
     };
     setErrorMessage(errorMessages[roomError] ?? 'Unable to join the room. Try again.');
+    setHomeMode(joinErrorCodes.has(roomError) ? 'join' : 'create');
     history.replace('/home');
   }, [history, location.search]);
 
@@ -66,6 +72,7 @@ const Home: React.FC = () => {
     const normalizedName = normalizeDisplayName(displayName);
     if (!normalizedName) {
       setErrorMessage('Enter a display name before joining a room.');
+      setHomeMode('create');
       return null;
     }
     await preferencesService.setDisplayName(normalizedName);
@@ -139,65 +146,96 @@ const Home: React.FC = () => {
           </IonText>
 
           <div className="home-actions">
-            <IonItem className="room-input" lines="none">
-              <IonLabel position="stacked">Display Name</IonLabel>
-              <IonInput
-                value={displayName}
-                placeholder="Your name"
-                maxlength={20}
-                onIonInput={(event) =>
-                  setDisplayName((event.detail.value ?? '').replace(/\s+/g, ' ').slice(0, 20))
-                }
-                onIonBlur={() => setDisplayName((value) => normalizeDisplayName(value))}
-              />
-            </IonItem>
-
-            <IonButton
-              expand="block"
-              className="primary-action"
-              onClick={handleCreateRoom}
-              disabled={!isOnline || !firebaseReady}
-            >
-              <IonIcon slot="start" icon={addCircleOutline} />
-              Create Room
-            </IonButton>
-
-            <IonItem className="room-input" lines="none">
-              <IonLabel position="stacked">Room Code</IonLabel>
-              <IonInput
-                value={roomCode}
-                placeholder="Enter 6-character code"
-                maxlength={6}
-                onIonInput={(event) => {
-                  const value = (event.detail.value ?? '').toUpperCase();
-                  setRoomCode(value.replace(/[^A-Z0-9]/g, ''));
-                }}
-                onIonBlur={() => setRoomCode((value) => value.trim().toUpperCase())}
-              />
-            </IonItem>
-
-            <IonButton
-              expand="block"
-              fill="outline"
-              className="secondary-action"
-              onClick={() => handleJoinRoom()}
-              disabled={!isOnline || !firebaseReady}
-            >
-              <IonIcon slot="start" icon={logInOutline} />
-              Join Room
-            </IonButton>
-
-            {lastRoomCode && (
-              <IonButton
-                expand="block"
-                fill="clear"
-                className="tertiary-action"
-                onClick={() => handleJoinRoom(lastRoomCode)}
+            <div className="mode-switch" role="tablist" aria-label="Room action">
+              <button
+                type="button"
+                className={`mode-tab ${homeMode === 'create' ? 'mode-tab-active' : ''}`}
+                role="tab"
+                aria-selected={homeMode === 'create'}
+                onClick={() => setHomeMode('create')}
               >
-                <IonIcon slot="start" icon={arrowRedoOutline} />
-                Return to {lastRoomCode}
-              </IonButton>
-            )}
+                <IonIcon icon={addCircleOutline} aria-hidden="true" />
+                <span>Create Room</span>
+              </button>
+              <button
+                type="button"
+                className={`mode-tab ${homeMode === 'join' ? 'mode-tab-active' : ''}`}
+                role="tab"
+                aria-selected={homeMode === 'join'}
+                onClick={() => setHomeMode('join')}
+              >
+                <IonIcon icon={logInOutline} aria-hidden="true" />
+                <span>Join Room</span>
+              </button>
+            </div>
+
+            <div className="home-mode-panel" role="tabpanel">
+              {homeMode === 'create' ? (
+                <>
+                  <IonItem className="room-input" lines="none">
+                    <IonLabel position="stacked">Display Name</IonLabel>
+                    <IonInput
+                      value={displayName}
+                      placeholder="Your name"
+                      maxlength={20}
+                      onIonInput={(event) =>
+                        setDisplayName((event.detail.value ?? '').replace(/\s+/g, ' ').slice(0, 20))
+                      }
+                      onIonBlur={() => setDisplayName((value) => normalizeDisplayName(value))}
+                    />
+                  </IonItem>
+
+                  <IonButton
+                    expand="block"
+                    className="primary-action"
+                    onClick={handleCreateRoom}
+                    disabled={!isOnline || !firebaseReady}
+                  >
+                    <IonIcon slot="start" icon={addCircleOutline} />
+                    Create Room
+                  </IonButton>
+                </>
+              ) : (
+                <>
+                  <IonItem className="room-input" lines="none">
+                    <IonLabel position="stacked">Room Code</IonLabel>
+                    <IonInput
+                      value={roomCode}
+                      placeholder="Enter 6-character code"
+                      maxlength={6}
+                      onIonInput={(event) => {
+                        const value = (event.detail.value ?? '').toUpperCase();
+                        setRoomCode(value.replace(/[^A-Z0-9]/g, ''));
+                      }}
+                      onIonBlur={() => setRoomCode((value) => value.trim().toUpperCase())}
+                    />
+                  </IonItem>
+
+                  <IonButton
+                    expand="block"
+                    fill="outline"
+                    className="secondary-action"
+                    onClick={() => handleJoinRoom()}
+                    disabled={!isOnline || !firebaseReady}
+                  >
+                    <IonIcon slot="start" icon={logInOutline} />
+                    Join Room
+                  </IonButton>
+
+                  {lastRoomCode && (
+                    <IonButton
+                      expand="block"
+                      fill="clear"
+                      className="tertiary-action"
+                      onClick={() => handleJoinRoom(lastRoomCode)}
+                    >
+                      <IonIcon slot="start" icon={arrowRedoOutline} />
+                      Return to {lastRoomCode}
+                    </IonButton>
+                  )}
+                </>
+              )}
+            </div>
 
             <IonButton
               expand="block"

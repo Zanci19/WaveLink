@@ -110,6 +110,7 @@ const Room: React.FC = () => {
 
   const roomServiceRef = useRef<RoomService | null>(null);
   const startSessionIdRef = useRef(0);
+  const roomCodeElementRef = useRef<HTMLParagraphElement | null>(null);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('waiting');
   const [currentTalker, setCurrentTalker] = useState<string | null>(null);
@@ -287,8 +288,12 @@ const Room: React.FC = () => {
   }, [handlePressEnd, handlePressStart]);
 
   useEffect(() => {
-    if (entryStatus !== 'joined' || isWaitingForApproval) {
+    const canRunActiveVoiceSession =
+      entryStatus === 'joined' && !isWaitingForApproval && !isStarting && !error;
+
+    if (!canRunActiveVoiceSession) {
       voiceLifecycleService.stop();
+      void backgroundService.stopRoomForegroundMode().catch(() => undefined);
       return;
     }
 
@@ -302,28 +307,73 @@ const Room: React.FC = () => {
     return () => {
       voiceLifecycleService.stop();
     };
-  }, [entryStatus, isWaitingForApproval, roomCode]);
+  }, [entryStatus, error, isStarting, isWaitingForApproval, roomCode]);
+
+  const showCopyResult = (message: string) => {
+    setCopyFeedback(message);
+    window.setTimeout(() => setCopyFeedback(null), 1800);
+  };
+
+  const copyRoomCodeWithTextarea = () => {
+    const textArea = document.createElement('textarea');
+    textArea.value = roomCode;
+    textArea.setAttribute('readonly', '');
+    textArea.style.position = 'fixed';
+    textArea.style.top = '0';
+    textArea.style.left = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    textArea.setSelectionRange(0, roomCode.length);
+
+    let didCopy = false;
+    try {
+      didCopy = document.execCommand('copy');
+    } finally {
+      document.body.removeChild(textArea);
+    }
+    return didCopy;
+  };
+
+  const selectVisibleRoomCode = () => {
+    const selection = window.getSelection();
+    const roomCodeElement = roomCodeElementRef.current;
+    if (!selection || !roomCodeElement) {
+      return false;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(roomCodeElement);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  };
 
   const handleCopyRoomCode = async () => {
+    let copied = false;
+
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(roomCode);
-      } else {
-        const textArea = document.createElement('textarea');
-        textArea.value = roomCode;
-        textArea.style.position = 'fixed';
-        textArea.style.opacity = '0';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
+        copied = true;
       }
-      setCopyFeedback('Copied');
-      window.setTimeout(() => setCopyFeedback(null), 1800);
     } catch {
-      setCopyFeedback('Copy failed');
-      window.setTimeout(() => setCopyFeedback(null), 1800);
+      copied = false;
     }
+
+    if (!copied) {
+      try {
+        copied = copyRoomCodeWithTextarea();
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (copied) {
+      showCopyResult('Copied');
+      return;
+    }
+
+    showCopyResult(selectVisibleRoomCode() ? 'Code selected' : 'Copy failed');
   };
 
   const handleLeave = async () => {
@@ -359,19 +409,22 @@ const Room: React.FC = () => {
       </IonHeader>
       <IonContent className="room-page-content">
         <div className="room-container">
-          <div className="room-header">
-            <IonText>
+          <div className="room-code-panel">
+            <IonText className="room-code-details">
               <h2>Room Code</h2>
               <div className="room-code-row">
-                <p className="room-code">{roomCode}</p>
+                <p ref={roomCodeElementRef} className="room-code">
+                  {roomCode}
+                </p>
                 <IonButton
-                  fill="clear"
+                  fill="outline"
                   size="small"
                   className="copy-code-button"
-                  aria-label="Copy room code"
+                  aria-label={`Copy room code ${roomCode}`}
                   onClick={handleCopyRoomCode}
                 >
-                  <IonIcon slot="icon-only" icon={copyOutline} />
+                  <IonIcon slot="start" icon={copyOutline} />
+                  Copy
                 </IonButton>
               </div>
               {copyFeedback && <IonNote className="copy-feedback">{copyFeedback}</IonNote>}

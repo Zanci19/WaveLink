@@ -19,6 +19,7 @@
     "@capacitor/keyboard": "8.0.3",
     "@capacitor/preferences": "8.0.1",
     "@capacitor/status-bar": "8.0.2",
+    "@capawesome/capacitor-android-edge-to-edge-support": "^8.0.8",
     "@ionic/react": "^8.5.0",
     "@ionic/react-router": "^8.5.0",
     "@types/react-router": "^5.1.20",

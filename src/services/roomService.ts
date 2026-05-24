@@ -26,6 +26,23 @@ export interface RoomServiceError {
   message?: string;
 }
 
+const roomServiceErrorTypes = new Set<RoomServiceErrorType>([
+  'firebase-missing',
+  'no-internet',
+  'room-not-found',
+  'room-full',
+  'join-denied',
+  'mic-permission',
+  'webrtc-failed',
+]);
+
+const isRoomServiceError = (error: unknown): error is RoomServiceError => {
+  if (!error || typeof error !== 'object' || !('type' in error)) {
+    return false;
+  }
+  return roomServiceErrorTypes.has((error as RoomServiceError).type);
+};
+
 export type RoomEntryStatus = 'joined' | 'waiting';
 
 export interface RoomServiceCallbacks {
@@ -240,6 +257,9 @@ export class RoomService {
       await this.startActiveRoom();
       return { userId: this.userId, status: 'joined' as const };
     } catch (error) {
+      if (isRoomServiceError(error)) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : '';
       if (message === 'ROOM_NOT_FOUND') {
         throw { type: 'room-not-found' } as RoomServiceError;
@@ -279,6 +299,10 @@ export class RoomService {
             this.callbacks.onWaitingStatusChange?.('approved');
             await this.startActiveRoom();
           } catch (error) {
+            if (isRoomServiceError(error)) {
+              this.callbacks.onError?.(error);
+              return;
+            }
             const message = error instanceof Error ? error.message : '';
             this.callbacks.onError?.({
               type: message === 'ROOM_FULL' ? 'room-full' : 'webrtc-failed',

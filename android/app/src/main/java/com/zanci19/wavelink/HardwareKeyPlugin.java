@@ -1,15 +1,89 @@
 package com.zanci19.wavelink;
 
+import android.content.ComponentName;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.KeyEvent;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+
+import java.lang.ref.WeakReference;
 
 @CapacitorPlugin(name = "HardwareKey")
 public class HardwareKeyPlugin extends Plugin {
+    private static WeakReference<HardwareKeyPlugin> activeInstance = new WeakReference<>(null);
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    @Override
+    public void load() {
+        activeInstance = new WeakReference<>(this);
+    }
+
+    @PluginMethod
+    public void isBackgroundCaptureEnabled(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("supported", true);
+        result.put("enabled", isAccessibilityServiceEnabled());
+        result.put("serviceName", getAccessibilityServiceComponent().flattenToString());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void openAccessibilitySettings(PluginCall call) {
+        openSettingsIntent(call, new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    }
+
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        Intent intent = new Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:" + getContext().getPackageName())
+        );
+        openSettingsIntent(call, intent);
+    }
+
+    @PluginMethod
+    public void openBatteryOptimizationSettings(PluginCall call) {
+        openSettingsIntent(call, new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+    }
+
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+        } else {
+            intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getContext().getPackageName())
+            );
+        }
+        openSettingsIntent(call, intent);
+    }
+
+    public static void notifyHardwareKeyFromBackground(KeyEvent event) {
+        HardwareKeyPlugin plugin = activeInstance.get();
+        if (plugin != null) {
+            plugin.notifyHardwareKey(event);
+        }
+    }
 
     public void notifyHardwareKey(KeyEvent event) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> notifyHardwareKey(event));
+            return;
+        }
+
         if (!hasListeners("hardwareKey")) {
             return;
         }
@@ -24,6 +98,55 @@ public class HardwareKeyPlugin extends Plugin {
         payload.put("key", KeyEvent.keyCodeToString(event.getKeyCode()).replace("KEYCODE_", ""));
         payload.put("action", action == KeyEvent.ACTION_DOWN ? "down" : "up");
         notifyListeners("hardwareKey", payload);
+    }
+
+    private void openSettingsIntent(PluginCall call, Intent intent) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception exception) {
+            call.reject("Unable to open Android settings", exception);
+        }
+    }
+
+    private boolean isAccessibilityServiceEnabled() {
+        int accessibilityEnabled;
+        try {
+            accessibilityEnabled = Settings.Secure.getInt(
+                getContext().getContentResolver(),
+                Settings.Secure.ACCESSIBILITY_ENABLED
+            );
+        } catch (Settings.SettingNotFoundException exception) {
+            return false;
+        }
+
+        if (accessibilityEnabled != 1) {
+            return false;
+        }
+
+        String enabledServices = Settings.Secure.getString(
+            getContext().getContentResolver(),
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        );
+        if (enabledServices == null) {
+            return false;
+        }
+
+        ComponentName serviceComponent = getAccessibilityServiceComponent();
+        TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(':');
+        splitter.setString(enabledServices);
+        while (splitter.hasNext()) {
+            ComponentName enabledComponent = ComponentName.unflattenFromString(splitter.next());
+            if (serviceComponent.equals(enabledComponent)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ComponentName getAccessibilityServiceComponent() {
+        return new ComponentName(getContext(), HardwareKeyAccessibilityService.class);
     }
 
     private static String keyCodeToDomCode(int keyCode) {
